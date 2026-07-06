@@ -14,7 +14,13 @@ from playwright.sync_api import Error as PlaywrightError
 from playwright.sync_api import Page
 
 from . import selectors as S
-from .browser import find_visible, gemini_page, resolve, wait_visible
+from .browser import (
+    find_visible,
+    gemini_page,
+    has_google_session,
+    resolve,
+    wait_visible,
+)
 from .config import Settings
 
 log = logging.getLogger(__name__)
@@ -50,6 +56,11 @@ def open_gemini(page: Page, settings: Settings) -> None:
 
 
 def assert_logged_in(page: Page, settings: Settings) -> None:
+    if not has_google_session(page):
+        raise NotLoggedInError(
+            "No Google session cookies in the browser profile. "
+            "Run `gemini-research login` first."
+        )
     if "accounts.google.com" in page.url:
         raise NotLoggedInError(
             "Redirected to Google sign-in. Run `gemini-research login` first."

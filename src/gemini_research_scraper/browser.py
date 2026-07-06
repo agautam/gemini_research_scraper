@@ -59,6 +59,17 @@ def gemini_page(settings: Settings) -> Iterator[Page]:
             context.close()
 
 
+# Cookies Google only sets for an authenticated session. Checking these is
+# locale- and DOM-independent, unlike looking for a "Sign in" button — the
+# signed-out page can transiently render an app shell that fools DOM checks.
+_AUTH_COOKIE_NAMES = {"__Secure-1PSID", "__Secure-3PSID", "SAPISID", "SID"}
+
+
+def has_google_session(page: Page) -> bool:
+    cookies = page.context.cookies("https://gemini.google.com")
+    return bool(_AUTH_COOKIE_NAMES & {c["name"] for c in cookies})
+
+
 def resolve(page: Page, cand: Candidate) -> Locator:
     kind = cand[0]
     if kind == "css":

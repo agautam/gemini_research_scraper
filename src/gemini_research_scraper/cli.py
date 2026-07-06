@@ -11,7 +11,7 @@ import typer
 from playwright.sync_api import Error as PlaywrightError
 
 from . import selectors as S
-from .browser import find_visible, gemini_page
+from .browser import find_visible, gemini_page, has_google_session
 from .config import Settings
 from .output import save_result
 from .research import NotLoggedInError, run_research
@@ -62,14 +62,13 @@ def login(
         deadline = time.monotonic() + timeout_min * 60
         signed_in = False
         while time.monotonic() < deadline:
-            # The signed-out page also shows a prompt box, so "composer
-            # visible" alone proves nothing: signed in means the composer is
-            # there AND no sign-in button AND we're not on accounts.google.com.
-            # Anything else (mid-navigation, consent dialogs, the sign-in form
-            # itself) just means "keep waiting".
+            # Google's auth cookies are the ground truth - they only exist
+            # for a signed-in session, no matter what the page is rendering.
+            # The DOM conditions on top guard against half-loaded states.
             try:
                 if (
-                    "accounts.google.com" not in page.url
+                    has_google_session(page)
+                    and "accounts.google.com" not in page.url
                     and find_visible(page, S.SIGN_IN_BUTTON) is None
                     and find_visible(page, S.PROMPT_INPUT) is not None
                 ):
