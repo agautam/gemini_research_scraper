@@ -5,9 +5,12 @@ scheme defined in selectors.py."""
 from __future__ import annotations
 
 import logging
+import os
 import re
+import socket
 import time
 from contextlib import contextmanager
+from pathlib import Path
 from typing import Iterator, Sequence
 
 from playwright.sync_api import Error as PlaywrightError
@@ -19,11 +22,51 @@ from .selectors import Candidate
 log = logging.getLogger(__name__)
 
 
+class ProfileInUseError(RuntimeError):
+    """The browser profile is held by a live process (a job is running)."""
+
+
+def _handle_profile_lock(profile_dir: Path) -> None:
+    """Chrome leaves a SingletonLock symlink ("<hostname>-<pid>") in the
+    profile. After an ungraceful shutdown - e.g. the container was recreated
+    mid-run, giving it a new hostname - the lock is stale and Chrome refuses
+    to start, claiming the profile is in use "on another computer". Clear it
+    when the owner is provably gone; fail clearly when it's provably alive."""
+    lock = profile_dir / "SingletonLock"
+    try:
+        target = os.readlink(lock)
+    except OSError:
+        return  # no lock (or not a platform that uses one, e.g. Windows)
+    host, _, pid_s = target.rpartition("-")
+    stale = True
+    if host == socket.gethostname():
+        try:
+            os.kill(int(pid_s), 0)
+            stale = False  # same host and the process exists
+        except (ProcessLookupError, ValueError):
+            stale = True
+        except PermissionError:
+            stale = False  # exists, owned by someone else
+    if not stale:
+        raise ProfileInUseError(
+            f"The browser profile is in use by process {pid_s} - another "
+            "research/login/extract is running right now. Wait for it to "
+            "finish (or stop it) and retry."
+        )
+    for name in ("SingletonLock", "SingletonSocket", "SingletonCookie"):
+        try:
+            (profile_dir / name).unlink(missing_ok=True)
+        except OSError:
+            pass
+    log.info("Removed stale browser profile lock (was: %s).", target)
+
+
 @contextmanager
 def gemini_page(settings: Settings) -> Iterator[Page]:
     """Launch a persistent-profile browser and yield a page. The profile can
     only be attached to one browser at a time, so callers must not overlap."""
     settings.profile_dir.mkdir(parents=True, exist_ok=True)
+    _handle_profile_lock(settings.profile_dir)
     # Reduces the most obvious automation fingerprint; Google may otherwise
     # refuse sign-in inside an automated browser.
     args = ["--disable-blink-features=AutomationControlled"]
