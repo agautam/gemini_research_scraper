@@ -154,12 +154,18 @@ def approve_plan(page: Page, settings: Settings) -> None:
     page.wait_for_timeout(2500)
 
     def research_started() -> bool:
-        # Sole reliable signal: the approval button leaving the page. (Text
-        # markers like "Researching..." can false-positive on words inside
-        # the plan itself.)
-        return find_visible(page, S.START_RESEARCH_BUTTON) is None
+        # Reliable signal (verified on a real run): starting the research
+        # opens the immersive panel / drops an entry chip into the chat.
+        # The "Start research" button STAYS VISIBLE after starting, so its
+        # absence/presence proves nothing.
+        return find_visible(page, S.RESEARCH_STARTED) is not None
 
     for attempt in range(1, 6):
+        # Never click when the research is already running - re-clicking
+        # "Start research" could kick off a duplicate run.
+        if research_started():
+            log.info("Research plan approved - research started.")
+            return
         btn = find_visible(page, S.START_RESEARCH_BUTTON)
         if btn is None:
             break

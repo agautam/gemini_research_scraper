@@ -81,18 +81,31 @@ START_RESEARCH_BUTTON: list[Candidate] = [
 
 # --- Progress / completion -------------------------------------------------
 
-RESEARCH_IN_PROGRESS: list[Candidate] = [
-    ("text", r"(researching|browsing the web|analyzing (results|websites)|"
-             r"i('|’)ve completed \d|working on it|just a few more)"),
-    ("css", "deep-research-tracker"),
-    ("css", "progress-indicator"),
+# Signals that the research actually kicked off after approving the plan:
+# starting a research opens the immersive panel / drops an entry chip into
+# the chat. NOTE: the plan's "Start research" button stays visible even after
+# research starts (verified on a finished chat 2026-07), so "button gone" must
+# NOT be used as the started/completed signal.
+RESEARCH_STARTED: list[Candidate] = [
+    ("css", "deep-research-immersive-panel"),
+    ("css", "immersive-panel"),
+    ("css", "immersive-entry-chip"),
 ]
 
+RESEARCH_IN_PROGRESS: list[Candidate] = [
+    ("text", r"(researching websites|browsing the web|"
+             r"i('|’)ve completed \d|working on it|just a few more)"),
+    ("css", "deep-research-tracker"),
+]
+
+# The finished report's toolbar (verified via `inspect` on a completed run):
+# "Share & Export", "Sources", "Contents", "Create". There is no "Export".
 RESEARCH_COMPLETE: list[Candidate] = [
-    ("role", "button", r"^export$"),
+    ("role", "button", r"share\s*&\s*export"),
+    ("text", r"^\s*share & export\s*$"),
+    ("css", "canvas-create-button"),
+    ("role", "button", r"^export$"),  # legacy fallbacks
     ("css", "button[aria-label='Export']"),
-    ("role", "button", r"(export to docs|open in docs|create doc)"),
-    ("css", "button[data-test-id='export-button']"),
 ]
 
 RESEARCH_FAILED: list[Candidate] = [
@@ -104,7 +117,10 @@ RESEARCH_FAILED: list[Candidate] = [
 
 # The finished report usually opens in an "immersive" side panel; if none of
 # the panel selectors match, the last chat message is used as a fallback.
+# Prefer the markdown body inside the panel so toolbar text and the sources
+# list ("Learn More" x50) stay out of the scraped document.
 REPORT_CONTAINER: list[Candidate] = [
+    ("css", "deep-research-immersive-panel .markdown"),
     ("css", "deep-research-immersive-panel"),
     ("css", "immersive-panel"),
     ("css", "[class*='immersive-editor']"),
