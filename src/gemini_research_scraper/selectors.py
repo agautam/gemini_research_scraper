@@ -46,17 +46,21 @@ DEEP_RESEARCH_CHIP: list[Candidate] = [
     ("css", "button[aria-label='Deep Research']"),
 ]
 
-# …otherwise behind the "Tools" menu in the composer.
+# …otherwise behind the "Upload & tools" menu in the composer.
+# (Verified against the live DOM 2026-07: button[aria-label='Upload & tools']
+# opens a menu whose entries are role=menuitemcheckbox buttons, including
+# "Deep research".)
 TOOLS_BUTTON: list[Candidate] = [
+    ("css", "button[aria-label='Upload & tools']"),
+    ("role", "button", r"^(upload & tools|tools)$"),
     ("css", "button[aria-label='Tools']"),
-    ("role", "button", r"^tools$"),
     ("css", "toolbox-drawer button"),
 ]
 
 DEEP_RESEARCH_MENU_ITEM: list[Candidate] = [
+    ("role", "menuitemcheckbox", r"deep research"),
     ("role", "menuitem", r"deep research"),
     ("role", "menuitemradio", r"deep research"),
-    ("role", "menuitemcheckbox", r"deep research"),
     ("role", "option", r"deep research"),
     ("text", r"^\s*deep research\s*$"),
 ]

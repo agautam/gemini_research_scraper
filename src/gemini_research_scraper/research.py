@@ -87,6 +87,12 @@ def enable_deep_research(page: Page, settings: Settings) -> None:
         item = wait_visible(
             page, S.DEEP_RESEARCH_MENU_ITEM, 10, "the 'Deep Research' menu item"
         )
+        if not item.is_enabled():
+            raise ResearchFailedError(
+                "The 'Deep Research' menu item is disabled. Usually this means "
+                "the account is signed out or has used up its Deep Research "
+                "quota for now."
+            )
         item.click()
         log.info("Enabled Deep Research via Tools menu.")
     page.wait_for_timeout(1000)
