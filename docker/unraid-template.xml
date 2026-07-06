@@ -1,0 +1,24 @@
+<?xml version="1.0"?>
+<Container version="2">
+  <Name>gemini-research-scraper</Name>
+  <!-- Build the image on your Unraid box first (see README):
+       docker build -t gemini-research-scraper:latest /path/to/repo -->
+  <Repository>gemini-research-scraper:latest</Repository>
+  <Registry/>
+  <Network>bridge</Network>
+  <Shell>bash</Shell>
+  <Privileged>false</Privileged>
+  <Support/>
+  <Project>https://gemini.google.com</Project>
+  <Overview>Runs Gemini Deep Research on your behalf in a real browser: submits a query, approves the research plan, waits for completion, and saves the report as Markdown/HTML. HTTP API on port 8000 (interactive docs at /docs). One-time Google sign-in and progress-watching via the built-in noVNC web viewer on port 6080. Sign in once with: docker exec -it gemini-research-scraper gemini-research login</Overview>
+  <Category>Productivity: Tools:</Category>
+  <WebUI>http://[IP]:[PORT:6080]/vnc.html</WebUI>
+  <ExtraParams>--shm-size=1g</ExtraParams>
+  <Icon>https://www.gstatic.com/lamda/images/gemini_sparkle_v002_d4735304ff6292a690345.svg</Icon>
+  <Config Name="API Port" Target="8000" Default="8000" Mode="tcp" Description="HTTP API (POST /research, docs at /docs)" Type="Port" Display="always" Required="true" Mask="false">8000</Config>
+  <Config Name="noVNC Port" Target="6080" Default="6080" Mode="tcp" Description="Browser viewer for Google sign-in and watching research runs" Type="Port" Display="always" Required="true" Mask="false">6080</Config>
+  <Config Name="Config" Target="/config" Default="/mnt/user/appdata/gemini-research-scraper" Mode="rw" Description="Persistent browser profile (Google session)" Type="Path" Display="always" Required="true" Mask="false">/mnt/user/appdata/gemini-research-scraper</Config>
+  <Config Name="Output" Target="/output" Default="/mnt/user/documents/research" Mode="rw" Description="Finished research reports (.md / .html)" Type="Path" Display="always" Required="true" Mask="false">/mnt/user/documents/research</Config>
+  <Config Name="Research timeout (s)" Target="GRS_RESEARCH_TIMEOUT_S" Default="2700" Mode="" Description="Max seconds to wait for a Deep Research run" Type="Variable" Display="advanced" Required="false" Mask="false">2700</Config>
+  <Config Name="Plan timeout (s)" Target="GRS_PLAN_TIMEOUT_S" Default="300" Mode="" Description="Max seconds to wait for the research plan" Type="Variable" Display="advanced" Required="false" Mask="false">300</Config>
+</Container>

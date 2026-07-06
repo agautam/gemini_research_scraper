@@ -1,0 +1,18 @@
+services:
+  gemini-research-scraper:
+    build: .
+    image: gemini-research-scraper:latest
+    container_name: gemini-research-scraper
+    restart: unless-stopped
+    ports:
+      - "8300:8000"   # HTTP API (POST /research, docs at /docs)
+      - "6380:6080"   # noVNC - watch the browser / do the one-time Google login
+    volumes:
+      # On Unraid: /mnt/user/appdata/gemini-research-scraper -> /config
+      - ./data/config:/config
+      # Finished reports (.md/.html) land here
+      - ./data/output:/output
+    shm_size: "1gb"   # Chromium is unstable with Docker's 64MB default
+    environment:
+      # Cap a research run at 45 min (see README for all GRS_* variables)
+      GRS_RESEARCH_TIMEOUT_S: "2700"

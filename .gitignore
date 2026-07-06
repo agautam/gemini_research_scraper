@@ -1,0 +1,18 @@
+# Python
+__pycache__/
+*.pyc
+*.egg-info/
+build/
+dist/
+.venv/
+
+# Project
+research_output/
+browser-profile/
+data/
+
+# OS / editors
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/

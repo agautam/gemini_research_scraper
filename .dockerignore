@@ -1,0 +1,7 @@
+.git
+.venv
+data
+research_output
+__pycache__
+*.egg-info
+docker-compose.yml

@@ -1,0 +1,24 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "gemini-research-scraper"
+version = "0.1.0"
+description = "Automates Gemini Deep Research via a real browser: submits a query, approves the plan, waits for the research to finish, and saves the report as a document."
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "playwright>=1.49",
+    "typer>=0.12",
+    "fastapi>=0.111",
+    "uvicorn>=0.30",
+    "markdownify>=0.13",
+    "pydantic>=2.7",
+]
+
+[project.scripts]
+gemini-research = "gemini_research_scraper.cli:app"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/gemini_research_scraper"]
