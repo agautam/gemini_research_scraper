@@ -113,19 +113,81 @@ def submit_query(page: Page, settings: Settings, query: str) -> None:
     page.keyboard.insert_text(query)
     send = wait_visible(page, S.SEND_BUTTON, 15, "the send button")
     send.click()
+
+    # Confirm the send actually happened: the composer empties on submit.
+    def composer_cleared() -> bool:
+        try:
+            return not box.inner_text().strip()
+        except PlaywrightError:
+            return True  # composer re-rendered/detached -> message left it
+
+    deadline = time.monotonic() + 10
+    while time.monotonic() < deadline and not composer_cleared():
+        time.sleep(1)
+    if not composer_cleared():
+        log.warning("Composer still holds text after Send; pressing Enter.")
+        box.click()
+        page.keyboard.press("Enter")
+        page.wait_for_timeout(2000)
+        if not composer_cleared():
+            raise ResearchFailedError(
+                "The query never left the prompt box - Send is not working."
+            )
     log.info("Query submitted (%d chars).", len(query))
 
 
 def approve_plan(page: Page, settings: Settings) -> None:
     """Gemini answers a Deep Research query with a plan plus a 'Start research'
-    button; approving means clicking it."""
+    button; approving means clicking it.
+
+    The plan message STREAMS in and Angular re-renders it while it grows, so a
+    single click can land on a button that is replaced an instant later and be
+    lost. Click, then verify the UI actually changed state (button gone or
+    progress indicators up); retry if it didn't.
+    """
     log.info("Waiting for the research plan (up to %ss)...", settings.plan_timeout_s)
-    start = wait_visible(
+    wait_visible(
         page, S.START_RESEARCH_BUTTON, settings.plan_timeout_s,
         "the 'Start research' button (the research plan)",
     )
-    start.click()
-    log.info("Research plan approved - research started.")
+    # Let the streaming message settle before the first click attempt.
+    page.wait_for_timeout(2500)
+
+    def research_started() -> bool:
+        # Sole reliable signal: the approval button leaving the page. (Text
+        # markers like "Researching..." can false-positive on words inside
+        # the plan itself.)
+        return find_visible(page, S.START_RESEARCH_BUTTON) is None
+
+    for attempt in range(1, 6):
+        btn = find_visible(page, S.START_RESEARCH_BUTTON)
+        if btn is None:
+            break
+        try:
+            btn.scroll_into_view_if_needed()
+            # After a couple of normal attempts, bypass actionability checks -
+            # constant re-rendering can keep Playwright waiting forever for
+            # the element to hold still.
+            btn.click(force=attempt >= 3, timeout=10_000)
+        except PlaywrightError as exc:
+            log.debug("Start-research click attempt %d errored: %s", attempt, exc)
+        deadline = time.monotonic() + 8
+        while time.monotonic() < deadline:
+            if research_started():
+                log.info("Research plan approved - research started.")
+                return
+            time.sleep(1)
+        log.info(
+            "'Start research' still showing after click (attempt %d); retrying.",
+            attempt,
+        )
+    if research_started():
+        log.info("Research plan approved - research started.")
+        return
+    raise ResearchFailedError(
+        "Clicked 'Start research' repeatedly but the plan never left the "
+        "approval state."
+    )
 
 
 def wait_for_completion(page: Page, settings: Settings) -> None:

@@ -138,6 +138,99 @@ def run(
         typer.echo(f"  -> {p.resolve()}")
 
 
+def _open_and_let_user_navigate(page, settings, url: Optional[str], wait_s: int) -> None:
+    page.goto(url or settings.base_url, wait_until="domcontentloaded")
+    if not url:
+        typer.secho(
+            f"You have {wait_s}s: in the noVNC tab, click the conversation that "
+            "holds the finished research (and open the report if it's collapsed).",
+            fg=typer.colors.YELLOW,
+        )
+        page.wait_for_timeout(wait_s * 1000)
+    else:
+        page.wait_for_timeout(8000)
+
+
+@app.command()
+def inspect(
+    url: Optional[str] = typer.Option(None, help="Chat URL to open directly."),
+    wait_s: int = typer.Option(
+        30, help="Seconds you get to navigate to the right chat via noVNC."
+    ),
+    profile_dir: Optional[Path] = typer.Option(None),
+    verbose: bool = typer.Option(False, "--verbose", "-v"),
+) -> None:
+    """Diagnostic: dump what's visible on the page and which of our selector
+    groups match it. Paste the output when reporting a UI mismatch."""
+    _setup_logging(verbose)
+    settings = _settings(profile_dir, headless=None)
+    with gemini_page(settings) as page:
+        _open_and_let_user_navigate(page, settings, url, wait_s)
+        info = page.evaluate(
+            """() => {
+              const vis = e => { const r = e.getBoundingClientRect(); return r.width > 0 && r.height > 0; };
+              const buttons = [...document.querySelectorAll('button,[role=button]')].filter(vis)
+                .map(b => [b.getAttribute('aria-label'), (b.textContent||'').trim().slice(0,50)]).slice(0, 80);
+              const tags = [...new Set([...document.querySelectorAll('*')].filter(vis)
+                .map(e => e.tagName.toLowerCase()).filter(t => t.includes('-')))]
+                .filter(t => /research|report|immersive|panel|message|response|canvas|doc|editor|toolbar/.test(t));
+              const headings = [...document.querySelectorAll('h1,h2')].filter(vis)
+                .map(h => h.tagName + ': ' + (h.textContent||'').trim().slice(0,70)).slice(0, 10);
+              return {buttons, customTags: tags, headings, url: location.href};
+            }"""
+        )
+        import json
+
+        typer.echo("=== PAGE DUMP (paste this back when reporting) ===")
+        typer.echo(json.dumps(info, indent=1))
+        typer.echo("=== SELECTOR GROUP MATCHES ===")
+        groups = [
+            ("RESEARCH_COMPLETE", S.RESEARCH_COMPLETE),
+            ("RESEARCH_IN_PROGRESS", S.RESEARCH_IN_PROGRESS),
+            ("START_RESEARCH_BUTTON", S.START_RESEARCH_BUTTON),
+            ("REPORT_CONTAINER", S.REPORT_CONTAINER),
+            ("REPORT_TITLE", S.REPORT_TITLE),
+        ]
+        for name, group in groups:
+            loc = find_visible(page, group)
+            typer.echo(f"{name}: {'MATCH' if loc is not None else 'no match'}")
+
+
+@app.command()
+def extract(
+    query_label: str = typer.Option(
+        "manually extracted research", "--label",
+        help="Recorded as the query in the document header.",
+    ),
+    url: Optional[str] = typer.Option(None, help="Chat URL to open directly."),
+    wait_s: int = typer.Option(
+        30, help="Seconds you get to navigate to the right chat via noVNC."
+    ),
+    output: Optional[Path] = typer.Option(None, "--output", "-o"),
+    profile_dir: Optional[Path] = typer.Option(None),
+    verbose: bool = typer.Option(False, "--verbose", "-v"),
+) -> None:
+    """Rescue path: scrape an already-finished research report from an
+    existing chat (navigate to it via noVNC while this waits) and save it."""
+    _setup_logging(verbose)
+    from .research import extract_report
+
+    settings = _settings(profile_dir, headless=None)
+    with gemini_page(settings) as page:
+        _open_and_let_user_navigate(page, settings, url, wait_s)
+        result = extract_report(page, settings, query_label)
+    if output is not None:
+        paths = save_result(
+            result, output.parent if str(output.parent) else Path("."),
+            formats=(output.suffix.lstrip(".") or "md",), stem=output.stem,
+        )
+    else:
+        paths = save_result(result, settings.output_dir, formats=("md", "html"))
+    typer.secho(f"Report: {result.title}", fg=typer.colors.GREEN)
+    for p in paths:
+        typer.echo(f"  -> {p.resolve()}")
+
+
 @app.command()
 def serve(
     host: str = typer.Option("127.0.0.1"),

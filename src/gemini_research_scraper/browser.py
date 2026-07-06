@@ -70,24 +70,32 @@ def has_google_session(page: Page) -> bool:
     return bool(_AUTH_COOKIE_NAMES & {c["name"] for c in cookies})
 
 
-def resolve(page: Page, cand: Candidate) -> Locator:
+def _resolve_all(page: Page, cand: Candidate) -> Locator:
     kind = cand[0]
     if kind == "css":
-        return page.locator(cand[1]).first
+        return page.locator(cand[1])
     if kind == "role":
-        return page.get_by_role(cand[1], name=re.compile(cand[2], re.I)).first
+        return page.get_by_role(cand[1], name=re.compile(cand[2], re.I))
     if kind == "text":
-        return page.get_by_text(re.compile(cand[1], re.I)).first
+        return page.get_by_text(re.compile(cand[1], re.I))
     raise ValueError(f"Unknown candidate kind: {cand!r}")
 
 
+def resolve(page: Page, cand: Candidate) -> Locator:
+    return _resolve_all(page, cand).first
+
+
 def find_visible(page: Page, candidates: Sequence[Candidate]) -> Locator | None:
-    """First candidate that is currently visible, or None."""
+    """First VISIBLE match across all candidates, or None. Checks every match
+    of each candidate, not just the first - Gemini keeps hidden duplicates of
+    some controls in the DOM (responsive layouts, stale stream renders)."""
     for cand in candidates:
         try:
-            loc = resolve(page, cand)
-            if loc.is_visible():
-                return loc
+            loc = _resolve_all(page, cand)
+            for i in range(min(loc.count(), 8)):
+                nth = loc.nth(i)
+                if nth.is_visible():
+                    return nth
         except PlaywrightError:
             continue
     return None
