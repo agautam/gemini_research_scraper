@@ -51,8 +51,11 @@ class ResearchResult:
 
 def open_gemini(page: Page, settings: Settings) -> None:
     log.info("Opening %s", settings.base_url)
+    # Do NOT wait for network idle here: a signed-in Gemini session keeps
+    # background connections open forever, so "networkidle" never fires.
+    # Readiness is established by waiting for the prompt input instead
+    # (assert_logged_in does that).
     page.goto(settings.base_url, wait_until="domcontentloaded")
-    page.wait_for_load_state("networkidle", timeout=settings.nav_timeout_s * 1000)
 
 
 def assert_logged_in(page: Page, settings: Settings) -> None:
