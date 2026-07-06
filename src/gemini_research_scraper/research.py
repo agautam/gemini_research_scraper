@@ -43,6 +43,8 @@ class ResearchResult:
     chat_url: str
     started_at: datetime
     finished_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+    sources_markdown: str | None = None
+    thinking_markdown: str | None = None
 
 
 # --------------------------------------------------------------------------
@@ -222,6 +224,57 @@ def wait_for_completion(page: Page, settings: Settings) -> None:
     )
 
 
+def _extract_sources(page: Page) -> str | None:
+    """The citation list behind the report's 'Sources' button. Best-effort:
+    returns None (with a log line) rather than failing the run."""
+    container = find_visible(page, S.SOURCES_LIST)
+    if container is None:
+        btn = find_visible(page, S.SOURCES_BUTTON)
+        if btn is not None:
+            try:
+                btn.click()
+                page.wait_for_timeout(2000)
+            except PlaywrightError:
+                pass
+            container = find_visible(page, S.SOURCES_LIST)
+    if container is None:
+        log.info("No sources panel found; skipping sources file.")
+        return None
+    try:
+        links = container.evaluate(
+            "el => [...el.querySelectorAll('a[href]')].map(a => "
+            "({href: a.href, text: (a.textContent||'').trim().replace(/\\s+/g,' ')}))"
+        )
+    except PlaywrightError:
+        links = []
+    seen: set[str] = set()
+    lines: list[str] = []
+    for link in links:
+        href = link.get("href", "")
+        if not href.startswith("http") or href in seen:
+            continue
+        seen.add(href)
+        text = (link.get("text") or "").strip()[:200] or href
+        lines.append(f"- [{text}]({href})")
+    if lines:
+        log.info("Extracted %d sources.", len(lines))
+        return "# Sources\n\n" + "\n".join(lines) + "\n"
+    # No anchors - fall back to whatever text the list renders.
+    md = markdownify(container.inner_html(), heading_style="ATX", bullets="-").strip()
+    return f"# Sources\n\n{md}\n" if md else None
+
+
+def _extract_thinking(page: Page) -> str | None:
+    container = find_visible(page, S.THINKING_PANEL)
+    if container is None:
+        return None
+    md = markdownify(container.inner_html(), heading_style="ATX", bullets="-").strip()
+    if md:
+        log.info("Extracted thinking panel (%d chars).", len(md))
+        return f"# Model thinking\n\n{md}\n"
+    return None
+
+
 def extract_report(page: Page, settings: Settings, query: str) -> ResearchResult:
     # Give the report panel a moment to render fully after completion.
     page.wait_for_timeout(3000)
@@ -263,12 +316,65 @@ def extract_report(page: Page, settings: Settings, query: str) -> ResearchResult
         html=html,
         chat_url=page.url,
         started_at=datetime.now(timezone.utc),  # overwritten by run_research
+        sources_markdown=_extract_sources(page),
+        thinking_markdown=_extract_thinking(page),
     )
 
 
+def ensure_report_open(page: Page) -> None:
+    """A revisited chat shows the finished research as a chip in the
+    conversation; the report panel only opens after clicking it."""
+    if find_visible(page, S.REPORT_PANEL) is not None:
+        return
+    chip = find_visible(page, S.OPEN_REPORT_CHIP)
+    if chip is None:
+        log.warning(
+            "No report panel or report chip found in this chat; extraction "
+            "will fall back to the raw chat messages."
+        )
+        return
+    try:
+        chip.click()
+        wait_visible(page, S.REPORT_PANEL, 30, "the report panel")
+        page.wait_for_timeout(1500)  # panel content render
+        log.info("Opened the report panel via its chat chip.")
+    except (PlaywrightError, TimeoutError) as exc:
+        log.warning("Could not open the report panel (%s); falling back.", exc)
+
+
 # --------------------------------------------------------------------------
-# Orchestrator
+# Orchestrators
 # --------------------------------------------------------------------------
+
+def normalize_chat_url(ref: str, settings: Settings) -> str:
+    """Accept a full chat URL or a bare chat id like '39b2afef6644e2d1'."""
+    ref = ref.strip()
+    if ref.startswith(("http://", "https://")):
+        return ref
+    return settings.base_url.rstrip("/") + "/" + ref.lstrip("/")
+
+
+def extract_from_chat(
+    chat_ref: str,
+    settings: Settings | None = None,
+    query_label: str | None = None,
+) -> ResearchResult:
+    """Scrape a finished Deep Research report out of an EXISTING chat -
+    including research that was run by hand, outside this service."""
+    settings = settings or Settings.from_env()
+    url = normalize_chat_url(chat_ref, settings)
+    started_at = datetime.now(timezone.utc)
+    with gemini_page(settings) as page:
+        log.info("Opening existing chat %s", url)
+        page.goto(url, wait_until="domcontentloaded")
+        assert_logged_in(page, settings)
+        ensure_report_open(page)
+        result = extract_report(
+            page, settings, query_label or f"extracted from {url}"
+        )
+        result.started_at = started_at
+        return result
+
 
 def run_research(query: str, settings: Settings | None = None) -> ResearchResult:
     """End-to-end Deep Research run. Blocking; typically 5-25 minutes."""

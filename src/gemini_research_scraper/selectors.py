@@ -132,3 +132,37 @@ REPORT_TITLE: list[Candidate] = [
     ("css", "immersive-panel h1"),
     ("css", "[data-test-id='report-title']"),
 ]
+
+# The report side panel itself, and the chip shown in a (re)visited chat that
+# opens it when the panel isn't already open.
+REPORT_PANEL: list[Candidate] = [
+    ("css", "deep-research-immersive-panel"),
+    ("css", "immersive-panel"),
+]
+
+OPEN_REPORT_CHIP: list[Candidate] = [
+    ("css", "immersive-entry-chip"),
+    ("role", "button", r"open (full )?report"),
+]
+
+# --- Sources / thinking (both best-effort) ---------------------------------
+
+# The report toolbar has a "Sources" button; the list itself renders in a
+# deep-research-source-lists element (seen in a live finished-report dump).
+SOURCES_BUTTON: list[Candidate] = [
+    ("css", "button[aria-label='Sources']"),
+    ("role", "button", r"^sources$"),
+]
+
+SOURCES_LIST: list[Candidate] = [
+    ("css", "deep-research-source-lists"),
+    ("css", "[class*='source-list']"),
+]
+
+# Model reasoning, when Gemini exposes it. Unverified; extraction skips
+# silently when nothing matches.
+THINKING_PANEL: list[Candidate] = [
+    ("css", "model-thoughts"),
+    ("css", "thinking-panel"),
+    ("css", "[class*='thought-panel']"),
+]

@@ -100,7 +100,7 @@ def run(
              "./research_output/<timestamp>-<title>.md",
     ),
     fmt: str = typer.Option(
-        "md", "--format", "-f", help="Comma-separated formats: md, html."
+        "md,html", "--format", "-f", help="Comma-separated formats: md, html."
     ),
     profile_dir: Optional[Path] = typer.Option(None),
     headless: Optional[bool] = typer.Option(
@@ -198,27 +198,36 @@ def inspect(
 
 @app.command()
 def extract(
-    query_label: str = typer.Option(
-        "manually extracted research", "--label",
-        help="Recorded as the query in the document header.",
+    chat: Optional[str] = typer.Argument(
+        None,
+        help="Chat URL (https://gemini.google.com/app/<id>) or bare chat id. "
+             "Omit it to pick the chat by hand via noVNC during a countdown.",
     ),
-    url: Optional[str] = typer.Option(None, help="Chat URL to open directly."),
+    query_label: Optional[str] = typer.Option(
+        None, "--label", help="Recorded as the query in the document header."
+    ),
     wait_s: int = typer.Option(
-        30, help="Seconds you get to navigate to the right chat via noVNC."
+        30, help="Seconds to navigate via noVNC when no chat is given."
     ),
     output: Optional[Path] = typer.Option(None, "--output", "-o"),
     profile_dir: Optional[Path] = typer.Option(None),
     verbose: bool = typer.Option(False, "--verbose", "-v"),
 ) -> None:
-    """Rescue path: scrape an already-finished research report from an
-    existing chat (navigate to it via noVNC while this waits) and save it."""
+    """Scrape a finished Deep Research report from any existing chat - also
+    ones that were run by hand, outside this service - and save it."""
     _setup_logging(verbose)
-    from .research import extract_report
+    from .research import ensure_report_open, extract_from_chat, extract_report
 
     settings = _settings(profile_dir, headless=None)
-    with gemini_page(settings) as page:
-        _open_and_let_user_navigate(page, settings, url, wait_s)
-        result = extract_report(page, settings, query_label)
+    if chat is not None:
+        result = extract_from_chat(chat, settings, query_label)
+    else:
+        with gemini_page(settings) as page:
+            _open_and_let_user_navigate(page, settings, None, wait_s)
+            ensure_report_open(page)
+            result = extract_report(
+                page, settings, query_label or "manually extracted research"
+            )
     if output is not None:
         paths = save_result(
             result, output.parent if str(output.parent) else Path("."),

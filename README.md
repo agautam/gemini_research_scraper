@@ -50,7 +50,19 @@ What happens:
 3. Submits the query and waits for Gemini's research plan.
 4. Clicks **Start research** to approve the plan.
 5. Polls until the research completes (default cap: 45 min).
-6. Scrapes the report and writes `research_output/<timestamp>-<title>.md`.
+6. Scrapes the report and writes one folder per run:
+
+```
+research_output/<timestamp>-<title>/
+    report.md           # human-readable report with metadata frontmatter
+    report.html         # raw scraped HTML
+    report.compact.md   # token-optimized (no link URLs/emphasis) for LLM context
+    sources.md          # citation list, when the page exposes one
+    thinking.md         # model reasoning, when the page exposes it
+```
+
+(`-o file.md` skips the folder layout and writes a single file instead.)
+The API serves the variants too: `GET /research/{id}/document?format=md|compact|sources|html`.
 
 Useful flags: `-o report.md` (explicit output path), `--format md,html`,
 `--timeout-min 60`, `--headless`, `-v` for debug logging.
@@ -136,6 +148,26 @@ curl http://<unraid-ip>:8000/research/<job_id>/document   # the report (md)
 ```
 
 Finished reports also land in the `/output` share automatically.
+
+### Extracting an already-run research
+
+Any finished Deep Research chat can be scraped after the fact — including
+research you ran by hand in the Gemini app on another device:
+
+```bash
+# CLI: full chat URL or just the chat id from the address bar
+docker exec -it gemini-research-scraper gemini-research extract 39b2afef6644e2d1
+
+# or without an id: it opens Gemini and gives you 30s to click the chat in noVNC
+docker exec -it gemini-research-scraper gemini-research extract
+
+# API
+curl -X POST http://<unraid-ip>:8000/extract \
+     -H "Content-Type: application/json" \
+     -d '{"chat_url": "https://gemini.google.com/app/39b2afef6644e2d1"}'
+```
+
+Output lands in the same per-run folder layout as `run`.
 
 > The API has no authentication — keep ports 8000/6080 on your LAN (don't
 > expose them through a reverse proxy to the internet as-is).

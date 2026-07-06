@@ -26,7 +26,7 @@ from pydantic import BaseModel, Field
 
 from .config import Settings
 from .output import save_result
-from .research import ResearchResult, run_research
+from .research import ResearchResult, extract_from_chat, run_research
 
 log = logging.getLogger(__name__)
 
@@ -42,6 +42,8 @@ class JobStatus(str, Enum):
 class Job:
     id: str
     query: str
+    kind: str = "research"  # "research" | "extract"
+    chat_url: Optional[str] = None  # for kind="extract"
     status: JobStatus = JobStatus.queued
     created_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     error: Optional[str] = None
@@ -51,6 +53,17 @@ class Job:
 
 class ResearchRequest(BaseModel):
     query: str = Field(..., min_length=3, description="The research question.")
+
+
+class ExtractRequest(BaseModel):
+    chat_url: str = Field(
+        ..., min_length=4,
+        description="Gemini chat URL (or bare chat id) holding a finished "
+                    "Deep Research report.",
+    )
+    label: Optional[str] = Field(
+        None, description="Recorded as the query in the document header."
+    )
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
@@ -64,9 +77,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         while True:
             job = work_queue.get()
             job.status = JobStatus.running
-            log.info("Job %s started: %r", job.id, job.query)
+            log.info("Job %s (%s) started: %r", job.id, job.kind, job.query)
             try:
-                job.result = run_research(job.query, settings)
+                if job.kind == "extract":
+                    job.result = extract_from_chat(
+                        job.chat_url, settings, job.query
+                    )
+                else:
+                    job.result = run_research(job.query, settings)
                 # Persist to the output directory too, so reports survive a
                 # container restart (job state itself is in-memory only).
                 try:
@@ -90,6 +108,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     def job_view(job: Job) -> dict:
         view = {
             "job_id": job.id,
+            "kind": job.kind,
             "status": job.status,
             "query": job.query,
             "created_at": job.created_at.isoformat(),
@@ -114,6 +133,18 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         work_queue.put(job)
         return job_view(job)
 
+    @app.post("/extract", status_code=202)
+    def submit_extract(req: ExtractRequest) -> dict:
+        job = Job(
+            id=uuid.uuid4().hex[:12],
+            query=req.label or f"extracted from {req.chat_url}",
+            kind="extract",
+            chat_url=req.chat_url,
+        )
+        jobs[job.id] = job
+        work_queue.put(job)
+        return job_view(job)
+
     @app.get("/research/{job_id}")
     def status(job_id: str) -> dict:
         job = jobs.get(job_id)
@@ -134,6 +165,20 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             return PlainTextResponse(
                 job.result.markdown, media_type="text/markdown; charset=utf-8"
             )
-        raise HTTPException(422, "format must be 'md' or 'html'.")
+        if format == "compact":
+            from .output import compact_markdown
+
+            return PlainTextResponse(
+                compact_markdown(job.result.markdown),
+                media_type="text/markdown; charset=utf-8",
+            )
+        if format == "sources":
+            if not job.result.sources_markdown:
+                raise HTTPException(404, "No sources were captured for this job.")
+            return PlainTextResponse(
+                job.result.sources_markdown,
+                media_type="text/markdown; charset=utf-8",
+            )
+        raise HTTPException(422, "format must be 'md', 'compact', 'sources', or 'html'.")
 
     return app
