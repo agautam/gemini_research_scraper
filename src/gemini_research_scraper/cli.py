@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import logging
+import time
 from pathlib import Path
 from typing import Optional
 
 import typer
+from playwright.sync_api import Error as PlaywrightError
 
 from . import selectors as S
 from .browser import find_visible, gemini_page
@@ -52,22 +54,39 @@ def login(
     """
     _setup_logging(verbose)
     settings = _settings(profile_dir, headless=False)  # login must be headful
-    typer.echo("A Chrome window will open. Sign in to your Google account on "
-               "gemini.google.com, then leave the window alone.")
+    typer.echo("A Chrome window will open on gemini.google.com. Sign in to your "
+               "Google account there (in the noVNC tab if running in Docker).")
     with gemini_page(settings) as page:
         page.goto(settings.base_url, wait_until="domcontentloaded")
-        deadline_ms = timeout_min * 60 * 1000
-        try:
-            # Signed-in state == the prompt composer is visible.
-            page.wait_for_selector(
-                "div[contenteditable='true']", timeout=deadline_ms, state="visible"
+        typer.echo(f"Waiting up to {timeout_min} min for you to finish signing in...")
+        deadline = time.monotonic() + timeout_min * 60
+        signed_in = False
+        while time.monotonic() < deadline:
+            # The signed-out page also shows a prompt box, so "composer
+            # visible" alone proves nothing: signed in means the composer is
+            # there AND no sign-in button AND we're not on accounts.google.com.
+            # Anything else (mid-navigation, consent dialogs, the sign-in form
+            # itself) just means "keep waiting".
+            try:
+                if (
+                    "accounts.google.com" not in page.url
+                    and find_visible(page, S.SIGN_IN_BUTTON) is None
+                    and find_visible(page, S.PROMPT_INPUT) is not None
+                ):
+                    signed_in = True
+                    break
+            except PlaywrightError:
+                pass  # page was mid-navigation; try again
+            time.sleep(2)
+        if not signed_in:
+            typer.secho(
+                f"Not signed in after {timeout_min} min - giving up. "
+                "Re-run this command to try again.",
+                fg=typer.colors.RED,
             )
-        except Exception:
-            typer.secho("Timed out waiting for sign-in.", fg=typer.colors.RED)
             raise typer.Exit(code=1)
-        if find_visible(page, S.SIGN_IN_BUTTON) is not None:
-            typer.secho("Still signed out - please retry.", fg=typer.colors.RED)
-            raise typer.Exit(code=1)
+        # Let session cookies/storage settle before tearing the browser down.
+        page.wait_for_timeout(3000)
     typer.secho(
         f"Signed in. Session saved to {settings.profile_dir}", fg=typer.colors.GREEN
     )
